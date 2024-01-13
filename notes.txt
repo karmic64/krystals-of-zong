@@ -1,0 +1,430 @@
+
+
+program entry point is $1000 -> $1507
+
+init code is from $1507-$151f
+	$1507+ - some init?
+	$1514 - jsr $033c - irq init/sid clear
+	$1517 - jsr $1708 - init global game vars
+	$151a - jsr $31f0 - title screen
+	$151d - jsr $1eef - level-specific init
+
+main game loop is from $1520-$166b
+	$1520+ - player logic
+	$15f8+ - special item logic
+	$1642+ - monster logic
+	$1656+ - wait for next frame
+
+
+
+
+
+-------------------------------------------------------- mazes
+
+
+ram:
+	
+
+
+
+source maze data:
+	pointer table from $101b-$102c  -> $fd
+	written to $4000-$63ff
+	loader routine at $0376
+		$105f - initialize pointers $bb/$bd
+			input:
+				$b3 - screen pointer high byte
+				$0801 - column
+				$0802 - row
+			output:
+				$bb - screen pointer
+				$bd - screen pointer + $7400
+					(intended to make color ram accessible with screen at $6400)
+		$10db - set row to $80 (wall)
+			A = byte length - 1
+			$0801 - column
+			$0802 - row
+		$10db - set column to $80 (wall)
+			A = byte length - 1
+			$0801 - column
+			$0802 - row
+		
+		$1087 - per map routine
+			jsr $10a6 - clear screen and draw border
+			jsr $1104 - left side walls
+				$1167 - ($5a bytes long)
+					for each:
+						byte - column
+						byte - row
+						byte - $0805 value
+							$00 means no randomness
+							otherwise (value - 1) AND $dc04 == 0, use $0806 value 1, else value 2
+						byte - $0806 value 1
+						byte - $0806 value 2
+				$1152 - draw random walls
+				$11c9 - draw wall on bottom left + random wall
+			jsr $120f - mirror walls on right side
+			jsr $1d64 - entrances and treasure walls
+				$109d-$10a5 - table
+					for each room:
+						bit 0 - up
+						bit 1 - down
+						bit 2 - left
+						bit 3 - right
+			jsr $16ac - set map allowed movement directions
+
+
+$1d5b+ - colors for each room
+
+
+mazes are stored to full screens at $4000-$63ff
+	loader routine is at $1c08
+	each screen is $400 bytes long
+	hi-pointer table at $1bea-$1bf2
+	these are plain mazes, there is no treasures/key doors,
+		just walls ($20) and empties ($80)
+	each maze corresponds to the room numbers 1-9
+
+
+entire maze (including 1 tile's worth of border) is 40x22
+
+
+
+
+
+--------------------------------------------------------- score
+
+all in packed BCD, little endian
+
+ram:
+	$0853-$0855 - score
+	$1018-$101a - hiscore
+
+
+$231e - update hiscore if needed
+
+$250a - add A to score
+$2512 - add A * 100 to score
+
+
+calls/point values
+	$129c - var. - kill an enemy
+		pac-man style, 200 for first, 400 for second, 600 for third, 800 for fourth
+			or not? i think it's meant to be like this but in reality enemies always give 200
+	$2088 - 1000 - collect a valuable treasure (in addition to normal treasure bonus)
+	$2485 -  100 - collect a key
+	$254f -   50 - collect a torch
+	$2585 -  500 - collect center treasure
+	$25c7 - 2000 - complete a level
+	$282c -  100 - collect a sword  (sprite sword only, not center treasure!)
+
+
+
+
+--------------------------------------------------------- mobs/sprites
+
+
+
+ram:
+	$0814-$0823 - $d000-$d00f mirror
+	$0824 - $d010 mirror
+	$0825 - $d015 mirror
+	$0826-$082d - screen sprite pointers mirror
+
+
+
+$300f - update sprite regs
+
+
+$191b - move object and set sprite position
+	input:
+		$0830 - sprite number
+		$0806 - movement direction
+		$0851 - movement speed
+		$0808 - x-pos
+		$0809 - y-pos
+		$080a - $d010 or-value
+
+
+
+
+$1811 - sets allowed movement directions
+	input:
+		$0806 - movement direction
+		$0808 - x-pos
+		$0809 - y-pos
+		$080a - x-pos hi-bit
+	output:
+		$0831 - 1 if allowed to move anywhere
+		$0833 - movement directions
+		$0834 - one single allowed movement direction (from table $186d)
+
+
+$1e68 - generate a random object sprite position
+	output:
+		$080e - y-pos
+		$080f - x-pos lo
+		$0810 - x-pos hi
+
+
+
+$1ea3 - set random positions of all monsters, show all sprites
+
+
+
+
+
+--------------------------------------------------------- player
+
+ram:
+	$0812 - player movement direction
+	$0813 - player requested movement direction
+	$0814 - player x-pos
+	$0815 - player y-pos
+	$084f - player movement speed
+	$083f - 1 = player is actually moving
+	
+	$0856 - player handling interval
+	$0857 - player handling timer
+	
+	$082e - player animation timer
+	$080b - player animation frame index
+	
+	$0840 - demo mode flag
+
+
+
+$166c - read joystick to requested movement direction
+
+$17e8 - player animation handler
+
+
+by default, the player speed and handling interval are both 1
+with the boots collected, the speed is 3 and the handling interval is 2
+	(effective speed of 1.5)
+
+all speeds are chosen especially so that when the player passes by any
+	possible junction, he will be directly ON the char.
+	i.e. for a speed to be valid, $18 must be a multiple of the speed
+
+
+
+$2005-$200c - player handling interval per level tbl
+
+
+
+--------------------------------------------------------- monsters
+
+monsters depend on the level:
+	1: snakes
+	2: bats
+	3: spiders
+	4: mummies
+
+mummies shoot deadly fireballs, on these stages you do not get any swords
+	because the fireballs take over the sprite slot that was once for them
+
+
+ram:
+	$0816-$081d - monster x/y pos
+	$085b-$085e - monster movement direction
+	$0863-$0866 - monster prefers vertical or horizontal flag
+	$0850 - monster speed
+	
+	$0858 - monster handling interval
+	$0859 - monster handling timer
+	
+	$084c - monster animation timer (3-frame interval)
+	
+	$1779-$177c - monster colors
+	
+	
+	$08ed - fireball active
+	
+	$08ee - fireball x-pos
+	$08ef - fireball y-pos
+	$08f0 - fireball x-pos hi bit
+	
+	$08f1 - fireball direction
+	
+	$2bec - fireball handling interval
+	$2c60 - fireball handling timer
+	
+	$2bed - fireball speed
+
+
+
+$200d-$2014 - monster speed per level tbl
+$2015-$201d - monster handling interval per level tbl
+
+$2023-$2026 - monster 1 color table
+$2027-$202a - monster 2 color table
+$202b-$202e - monster 3 color table
+$202f-$2032 - monster 4 color table
+
+
+$1891 - monster movement and animation handler
+	jsr $2b03 - handle mummies shooting fireballs
+	jsr $1e1b - override allowed movement directions to disable exiting maze
+	jsr $199e - (if $dc04 & $0f == 0)  decide on a random movement direction
+	jsr $1a11 - (if $dc04 & $0f != 0)  decide an optimal movement direction based on player
+		input:
+			$0843 - $0863+ value
+		middle:
+			$083a - best x-direction
+			$083b - best y-direction
+			$083c - $083a ^ $0c  (i.e. other way)
+			$083d - $083b ^ $03  (i.e. other way)
+		output:
+			$0836-$0839 - list of directions
+				if $0843 == 0:
+					3/0: best y-direction and its opposite
+					2/1: best x-direction and its opposite
+				else:
+					3/0: best x-direction and its opposite
+					2/1: best y-direction and its opposite
+				values at indexes 1 and 2 are shuffled depending on $dc04 low bit
+			$0842 - opposite of current movement direction
+			the direction table is read last byte first, the first one that is valid is picked
+				any directions which are equal to the opposite are ignored
+					(monsters don't go backwards)
+	jsr $1abc - animation handler
+
+$1b35 - flip bit 0 of $0863-$0866 if $a1 & 3 == 0
+
+$2bee - fireball handling
+	on level 4 fireball moves at 3/2
+	on level 8 fireball moves at 2/1
+
+
+
+
+
+
+
+--------------------------------------------------------- treasures / special items
+
+initial sword time is $5a  (the treasure version is $ff)
+when sword timer hits $0f, all enemies are turned to color $02
+
+torch time is ($28 - $15) * 8 = $98 units
+when a torch is collected, the entire torch time fills up
+when the torch runs out, all enemies are shown with color $0b
+torch check is done by polling the screen (it's out when $67d5 == #$20)
+
+ram:
+	$08d6-$08de - room keys collected (1=collected)
+	$08e3-$08eb - room treasures collected (1=collected)
+	
+	$08a8-$08b0 - treasures per room
+		1: potion 1
+		2: sword
+		3: lantern
+		4: boots
+		5: gem
+		6: potion 6
+		7: crown
+		8: chest
+		9: exit
+	$27b4-$27bc - treasure colors
+	
+	$0872-$087a - key target rooms per room (index to $1d5b table + 1 for color)
+	$087b-$0883 - key sprite x-pos per room
+	$0884-$088c - key sprite y-pos per room
+	$088d-$0895 - key sprite $d010 or-value per room
+	
+	
+	$0841 - special item timer frac ($04-frame interval)
+	
+	$08b2-$08ba - sword sprite x-pos per room
+	$08bb-$08c3 - sword sprite y-pos per room
+	$08c4-$08cc - sword sprite $d010 or-value per room
+	
+	$0904 - sword timer
+	
+	$08e2 - room number with the torch
+	$08df - torch sprite x-pos
+	$08e0 - torch sprite y-pos
+	$08e1 - torch sprite $d010 or-value
+	
+	$265f - torch time frac ($11-frame interval)
+	
+	$084b - torch animation frame
+	$084d - torch animation timer (4-frame interval)
+	
+	$08f2 - has potion 6
+		allows a one-time room transportation for this level
+			use F1 to advance the room, and press F7 to start the game again
+	$08f3 - has lantern
+		makes torch time not go down for this level
+	$08f4 - has potion 1
+		makes you invincible to monsters for this room only
+
+
+$32b8 - init treasure
+	jsr $237a - main
+		$237a+ - init keys/swords positions loop
+		$23dc+ - shuffle keys/treasures loop
+		$240d+ - finish shuffling keys/treasures
+		$243d+ - jsr $24dc - init torch position
+		
+		$21a3 - generate a random number from SID chip
+
+$27c6 - draw treasure
+
+
+$2563 - treasure collection handler
+	$2033 - jump to treasure handler
+		$2040-$2051 - individual treasure handler tbl
+			1: $2052 - set $08f4 to 1
+			2: $2058 - set sword timer to $ff
+			3: $206d - set $08f3 to 1
+			4: $2073 - player speed to 3, handling interval to 2
+			5: $2084 - extra 1000 points
+			6: $208b - set $08f2 to 1
+			7: $2091 - back to $2084
+			8: $2094 - back to $2084
+			9: $2097 - pla out and jump to level complete screen
+
+
+$1b49 - keyhole flashing handler
+
+
+$1b17 - torch animation handler
+
+$2525 - torch collection handler
+	$24dc - set torch to random place
+	$262a - reset torch time meter
+
+$25d0 - torch time handler
+
+
+$2801 - sword collection handler
+
+
+
+$1543-$156b - potion 6 handler
+$12b9 - potion 1 handler
+
+
+
+
+-------------------------------------------------------- music
+
+tune table at $2dce:
+	for each song:
+		word - song data pointer  (-> $091c,x)
+		byte - gate off timer  (-> $0913,x)
+		byte - attack  (asl 4 -> $08f6)
+		byte - decay  (or $08f6 -> $d405,x)
+		byte - sustain  (asl 4 -> $08f6)
+		byte - release  (or $08f6 -> $d406,x)
+		byte - waveform w/ gate off  (-> $0916,x)
+
+song data:
+	for each note:
+		byte - length  ($00 = stop and mute channel)
+		big-endian word - frequency
+
+
+$2c61 - play music

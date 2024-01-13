@@ -1,0 +1,7 @@
+*.exe
+tool/convert-chr-secret
+tool/convert-music
+
+*.d
+
+*.7z
